@@ -1,67 +1,99 @@
 import os
+import cv2
 from ultralytics import YOLO
 
-# --- Configuration ---
-# 1. Path to your custom .pt file (kept your change)
-CUSTOM_MODEL_PATH = 'med_1.pt' 
-
-# 2. Source for inference. 
-# Changed to '0' to use the default webcam.
-SOURCE_INPUT = 0 
-
-# 3. Define where any saved output would go (kept your change)
+MODEL_PATH = 'multimed_2.pt'
+SOURCE_INPUT = 0
 OUTPUT_DIR = 'predict_output'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-# ---------------------
 
 def run_object_detection():
-    """
-    Loads an Ultralytics YOLO model from a .pt file and performs 
-    real-time object tracking on a live camera feed using ByteTrack.
-    """
-    print(f"Loading model from: {CUSTOM_MODEL_PATH}")
+    print(f"Loading model from: {MODEL_PATH}")
     
     try:
-        # Load the custom model.
-        model = YOLO(CUSTOM_MODEL_PATH)
+        model = YOLO(MODEL_PATH)
+
+        print("Press 'q' or 'esc' on the detection window to stop.")
         
-        # --- Run Tracking on Camera ---
-        print("\nStarting live tracking feed... Press 'q' or 'esc' on the detection window to stop.")
-        print("Objects will now have persistent IDs thanks to ByteTrack.")
-        
-        # We use model.track() instead of model.predict() for object tracking.
-        # 'tracker' specifies the algorithm to use (ByteTrack is fast and reliable).
-        # 'imgsz=480' keeps the resolution low for better FPS on your PC.
         results = model.track(
             source=SOURCE_INPUT,
-            show=True,              # <<< Displays the video stream with bounding boxes and IDs
+            show=False,
             save=False,
             project=OUTPUT_DIR,
-            name='tracking_run',    # New run name for tracking
+            name='tracking_run',
             conf=0.25,
             iou=0.7,
-            imgsz=480,              # Lower resolution for better FPS
+            imgsz=256,
             verbose=False,
-            stream=True,            # Use streaming for efficient video/camera processing
-            tracker='bytetrack.yaml' # <<< ENABLED TRACKING HERE
+            stream=True,
+            tracker='bytetrack.yaml'
         )
-        
-        # This loop runs continuously and prints frame-level information
-        for r in results:
-            # Check if tracking data is available and print the number of tracked objects
-            if r.boxes and r.boxes.id is not None:
-                 print(f"Frame processed. Tracked objects: {len(r.boxes.id)}", end='\r', flush=True)
-            else:
-                 print(f"Frame processed. Detections found: {len(r.boxes)}", end='\r', flush=True)
 
-        print("\n--- Tracking Stream Closed ---")
+        for r in results:
+            frame = r.plot()
+            height, width, _ = frame.shape
+            margin = 40
+
+            # Define detection box region
+            detect_box = (margin, margin, width - margin, height - margin)  # (x1, y1, x2, y2)
+
+            # Draw detection box
+            cv2.rectangle(
+                frame,
+                (margin, margin),
+                (width - margin, height - margin),
+                (0, 255, 0),
+                2
+            )
+            cv2.putText(
+                frame,
+                "Detection Box",
+                (margin, margin - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                1,
+                cv2.LINE_AA
+            )
+
+            # Check for border collision
+            if r.boxes is not None:
+                for box in r.boxes:
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                    cls_id = int(box.cls[0])
+                    class_name = model.names[cls_id]
+
+                    if is_touching_border((x1, y1, x2, y2), detect_box, tolerance=5):
+                        print(f"⚠️ {class_name} collided with detection border!")
+
+            cv2.imshow("EGCO486 PROJECT", frame)
+
+            if cv2.waitKey(1) & 0xFF in [ord('q'), 27]:
+                break
+
+        cv2.destroyAllWindows()
 
     except FileNotFoundError:
-        print(f"Error: Model file not found at {CUSTOM_MODEL_PATH}. Please check the path.")
+        print(f"File not found: {MODEL_PATH}")
     except Exception as e:
-        print(f"\nAn unexpected error occurred during tracking. Check if the camera ({SOURCE_INPUT}) is available.")
-        print(f"Details: {e}")
+        print(e)
+
+
+def is_touching_border(boxA, boxB, tolerance=5):
+    """
+    Check if boxA (object) touches or crosses the border of boxB (detection box).
+    """
+    x1, y1, x2, y2 = boxA
+    bx1, by1, bx2, by2 = boxB
+
+    # Touch/cross conditions: within a few pixels (tolerance) of any edge
+    touch_left   = abs(x1 - bx1) <= tolerance and y2 > by1 and y1 < by2
+    touch_right  = abs(x2 - bx2) <= tolerance and y2 > by1 and y1 < by2
+    touch_top    = abs(y1 - by1) <= tolerance and x2 > bx1 and x1 < bx2
+    touch_bottom = abs(y2 - by2) <= tolerance and x2 > bx1 and x1 < bx2
+
+    return touch_left or touch_right or touch_top or touch_bottom
+
 
 if __name__ == "__main__":
-    # NOTE: Ensure you have a webcam connected and the 'ultralytics' library installed.
     run_object_detection()
