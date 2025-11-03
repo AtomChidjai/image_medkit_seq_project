@@ -14,7 +14,6 @@ col1, col2 = st.columns([1, 1])
 if "running" not in st.session_state:
     st.session_state.running = False
 
-# --- Left Column: Camera Feed ---
 with col1:
     st.subheader("📷 Live Camera Feed")
     frame_window = st.image([], use_container_width=True)
@@ -42,13 +41,10 @@ with col1:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             processed = yolo_cam.process(frame)
 
-            # Update frame
             frame_window.image(processed, channels="RGB")
 
-            # Limit frame rate for Streamlit updates
             time.sleep(0.03)
 
-            # Recalculate FPS (optional, used below)
             fps = 1.0 / (time.time() - fps_time)
             st.session_state["fps"] = round(fps, 1)
             fps_time = time.time()
@@ -58,8 +54,6 @@ with col1:
     else:
         st.info("Click ▶ **Start Camera** to begin streaming.")
 
-
-# --- Right Column: Controls & Metrics ---
 with col2:
     st.subheader("⚙️ Model & Control Panel")
 

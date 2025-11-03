@@ -8,8 +8,13 @@ OUTPUT_DIR = 'predict_output'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def run_object_detection():
+    tracking_list = ['Eno', 'Mybacin']
+    expected_index = 0
+    object_state = ''
+    message = ''
+    message_state = ''
     print(f"Loading model from: {MODEL_PATH}")
-    
+
     try:
         model = YOLO(MODEL_PATH)
 
@@ -32,10 +37,10 @@ def run_object_detection():
         for r in results:
             frame = r.plot()
             height, width, _ = frame.shape
-            margin = 40
+            margin = 20
 
             # Define detection box region
-            detect_box = (margin, margin, width - margin, height - margin)  # (x1, y1, x2, y2)
+            detect_box = (margin, margin, width - margin, height - margin)
 
             # Draw detection box
             cv2.rectangle(
@@ -48,7 +53,7 @@ def run_object_detection():
             cv2.putText(
                 frame,
                 "Detection Box",
-                (margin, margin - 10),
+                (margin, margin - 5),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
                 (0, 255, 0),
@@ -63,8 +68,14 @@ def run_object_detection():
                     cls_id = int(box.cls[0])
                     class_name = model.names[cls_id]
 
-                    if is_touching_border((x1, y1, x2, y2), detect_box, tolerance=5):
-                        print(f"⚠️ {class_name} collided with detection border!")
+                    if is_touching_border((x1, y1, x2, y2), detect_box, tolerance=5) and object_state != class_name:
+                        print(f"{class_name} detected")
+                        object_state = class_name
+                        expected_index, message = check_detection(class_name, tracking_list, expected_index)        
+
+            if message_state != message:
+                print(message)
+                message_state = message
 
             cv2.imshow("EGCO486 PROJECT", frame)
 
@@ -78,22 +89,31 @@ def run_object_detection():
     except Exception as e:
         print(e)
 
+def check_detection(detected_name, tracking_list, expected_index):
+    alert_message = ""
+    if expected_index < len(tracking_list):
+        expected_name = tracking_list[expected_index]
+        if detected_name == expected_name:
+            expected_index += 1
+            alert_message = f"Correct: {detected_name}"
+            if expected_index == len(tracking_list):
+                alert_message = "All items detected in order!"
+                # expected_index = 0
+        else:
+            alert_message = f"Wrong order: expected {expected_name}, got {detected_name}"
+    
+    return expected_index, alert_message
 
 def is_touching_border(boxA, boxB, tolerance=5):
-    """
-    Check if boxA (object) touches or crosses the border of boxB (detection box).
-    """
     x1, y1, x2, y2 = boxA
     bx1, by1, bx2, by2 = boxB
 
-    # Touch/cross conditions: within a few pixels (tolerance) of any edge
     touch_left   = abs(x1 - bx1) <= tolerance and y2 > by1 and y1 < by2
     touch_right  = abs(x2 - bx2) <= tolerance and y2 > by1 and y1 < by2
     touch_top    = abs(y1 - by1) <= tolerance and x2 > bx1 and x1 < bx2
     touch_bottom = abs(y2 - by2) <= tolerance and x2 > bx1 and x1 < bx2
 
     return touch_left or touch_right or touch_top or touch_bottom
-
 
 if __name__ == "__main__":
     run_object_detection()
