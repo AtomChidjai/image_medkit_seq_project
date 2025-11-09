@@ -3,10 +3,14 @@
 import cv2
 import numpy as np
 from ultralytics import YOLO
+import logging
+from io import StringIO # For in-memory logging
+import time
 
 class Sequencer:
     """
-    Handles YOLO model initialization, object tracking, and sequence verification logic.
+    Handles YOLO model initialization, object tracking, sequence verification,
+    and session-based logging.
     """
     
     def __init__(self, model_path, tracking_list, conf=0.25, iou=0.7, imgsz=256, tolerance=10):
@@ -17,28 +21,58 @@ class Sequencer:
         self.iou = iou
         self.imgsz = imgsz
         self.tolerance = tolerance
+        self.session_id = time.strftime("%Y%m%d_%H%M%S") # Unique ID for this session/log
 
         # State Variables
         self.expected_index = 0
         self.processed_objects = {}
         self.message = "Ready"
         self.is_sequence_complete = False
+        self.last_event_type = None # 'Correct', 'Wrong', 'Reset', or None
+
+        # Logging Setup (In-Memory Buffer)
+        self.log_stream = StringIO()
+        self.logger = self._setup_logger()
         
         # Load Model
         try:
             self.model = YOLO(self.model_path)
-            print(f"Model loaded: {self.model_path}")
+            self.logger.info(f"Model loaded: {self.model_path}")
         except FileNotFoundError:
-            print(f"ERROR: Model file not found at {self.model_path}")
+            self.logger.error(f"Model file not found at {self.model_path}")
             self.model = None
 
+    def _setup_logger(self):
+        """Sets up a logger that outputs to the in-memory stream."""
+        logger = logging.getLogger(f"Sequencer_{self.session_id}")
+        logger.setLevel(logging.INFO)
+        # Prevent log messages from propagating to the root logger (which might print to console)
+        logger.propagate = False 
+
+        # Handler to write to the in-memory StringIO buffer
+        handler = logging.StreamHandler(self.log_stream)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        
+        # Clear existing handlers if they exist (crucial for Streamlit)
+        if logger.hasHandlers():
+            logger.handlers.clear()
+            
+        logger.addHandler(handler)
+        
+        logger.info(f"--- STARTING NEW SEQUENCE: {', '.join(self.tracking_list)} ---")
+        return logger
+
+    def get_log_content(self):
+        """Returns the entire content of the in-memory log buffer."""
+        return self.log_stream.getvalue()
+
     def is_touching_border(self, boxA, boxB):
-        """Checks if any part of boxA touches the border of boxB within tolerance."""
+        # ... (Your existing is_touching_border function remains the same) ...
         x1, y1, x2, y2 = boxA
         bx1, by1, bx2, by2 = boxB
         tolerance = self.tolerance
     
-        # Check for proximity to any of the four borders of boxB
         touch_left   = abs(x1 - bx1) <= tolerance and y2 > by1 and y1 < by2
         touch_right  = abs(x2 - bx2) <= tolerance and y2 > by1 and y1 < by2
         touch_top    = abs(y1 - by1) <= tolerance and x2 > bx1 and x1 < bx2
@@ -49,59 +83,60 @@ class Sequencer:
     def check_detection(self, detected_name):
         """Checks the detected object against the next expected item in the list."""
         alert_message = ""
+        self.last_event_type = None
         
         if self.expected_index < len(self.tracking_list):
             expected_name = self.tracking_list[self.expected_index]
             if detected_name == expected_name:
                 self.expected_index += 1
+                self.last_event_type = 'Correct' # New state for app.py alert
                 if self.expected_index < len(self.tracking_list):
                     alert_message = f"Correct: {detected_name}. Next: {self.tracking_list[self.expected_index]}"
                 else:
                     alert_message = "All items detected in order!"
                     self.is_sequence_complete = True
             else:
+                self.last_event_type = 'Wrong' # New state for app.py alert
                 alert_message = f"Wrong order: expected {expected_name}, got {detected_name}"
         
         self.message = alert_message
-
+        
     def reset_state(self):
         """Hard reset of tracking state."""
         self.expected_index = 0
         self.processed_objects.clear()
         self.is_sequence_complete = False
         self.message = f"Tracking reset. Expected: {self.tracking_list[0]}" if self.tracking_list else "Ready"
+        self.logger.warning("Manual reset performed.")
 
     def process_frame(self, frame):
         """Processes a single frame for detection, tracking, and sequence verification."""
+        self.last_event_type = None # Reset event type every frame
+
         if self.model is None:
             return frame, self.get_display_message()
 
         # Run tracking on the current frame
+        # ... (rest of tracking call remains the same) ...
         results = self.model.track(
-            source=frame,
-            conf=self.conf,
-            iou=self.iou,
-            imgsz=self.imgsz,
-            verbose=False,
-            persist=True,
-            show=False,
-            save=False
+            source=frame, conf=self.conf, iou=self.iou, imgsz=self.imgsz, 
+            verbose=False, persist=True, show=False, save=False
         )
         
         # Check for auto-reset condition (Cleared state)
         if self.is_sequence_complete and not self.processed_objects:
             self.reset_state()
             self.message = f"Sequence complete and all items cleared. Tracking soft reset. Expected: {self.tracking_list[self.expected_index]}"
+            self.logger.info("Auto-reset triggered: Area clear after sequence completion.")
 
         if not results:
-            # If no detections, return frame as is
             return frame, self.get_display_message()
             
         r = results[0]
         annotated_frame = r.plot()
+        # ... (frame, ROI drawing remains the same) ...
         height, width, _ = annotated_frame.shape
         margin = 20
-
         detect_box_xyxy = (margin, margin, width - margin, height - margin)
         
         # Draw Detection ROI
@@ -125,6 +160,11 @@ class Sequencer:
                     if track_id not in self.processed_objects:
                         self.check_detection(class_name)
                         self.processed_objects[track_id] = class_name 
+                        
+                        # Log the event
+                        self.logger.info(f"ID {track_id} ({class_name}) detected. Result: {self.message}")
+                        
+                        # Use print for console debugging only
                         print(f"ID {track_id} ({class_name}) triggered. Result: {self.message}")
 
             # Object Cleanup Logic
