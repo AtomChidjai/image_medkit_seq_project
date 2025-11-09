@@ -185,13 +185,23 @@ with col1:
             # Use Sequencer to process the frame
             processed_frame, status_message = st.session_state.sequencer.process_frame(frame)
             
-            # --- ALERT SYSTEM ---
-            if st.session_state.sequencer.last_event_type == 'Wrong':
-                alert_placeholder.error(f"🚨 **WRONG ITEM!** {st.session_state.sequencer.message.split(':')[1].strip()}", icon="❌")
-            elif st.session_state.sequencer.last_event_type == 'Correct':
-                 alert_placeholder.empty()
+            # --- ALERT SYSTEM (Timed Display Logic) ---
+            current_time = time.time()
+            sequencer = st.session_state.sequencer
+
+            # Check if an alert is currently active due to a 'Wrong' event
+            if sequencer.last_event_type == 'Wrong' or \
+               (sequencer.wrong_event_time > 0 and (current_time - sequencer.wrong_event_time) < ALERT_DURATION_SECONDS):
+                
+                # If a wrong item was just detected or the timer is still running
+                alert_placeholder.error(f"🚨 **WRONG ITEM!** {sequencer.message.split(':')[1].strip()}", icon="❌")
+                
+                # If the current event was 'Correct', we still show the old error, 
+                # but we stop the error timer from being reset by a false negative
+                if sequencer.last_event_type == 'Correct':
+                    sequencer.wrong_event_time = 0.0 # Stop the timed error display on successful correction
             else:
-                 alert_placeholder.empty()
+                alert_placeholder.empty()
             
             # Convert to RGB for Streamlit display
             processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)

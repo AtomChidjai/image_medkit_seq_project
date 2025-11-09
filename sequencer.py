@@ -29,6 +29,7 @@ class Sequencer:
         self.message = "Ready"
         self.is_sequence_complete = False
         self.last_event_type = None # 'Correct', 'Wrong', 'Reset', or None
+        self.wrong_event_time = 0.0 # NEW: Timestamp for 'Wrong' event
 
         # Logging Setup (In-Memory Buffer)
         self.log_stream = StringIO()
@@ -80,6 +81,27 @@ class Sequencer:
     
         return touch_left or touch_right or touch_top or touch_bottom
 
+    # def check_detection(self, detected_name):
+    #     """Checks the detected object against the next expected item in the list."""
+    #     alert_message = ""
+    #     self.last_event_type = None
+        
+    #     if self.expected_index < len(self.tracking_list):
+    #         expected_name = self.tracking_list[self.expected_index]
+    #         if detected_name == expected_name:
+    #             self.expected_index += 1
+    #             self.last_event_type = 'Correct' # New state for app.py alert
+    #             if self.expected_index < len(self.tracking_list):
+    #                 alert_message = f"Correct: {detected_name}. Next: {self.tracking_list[self.expected_index]}"
+    #             else:
+    #                 alert_message = "All items detected in order!"
+    #                 self.is_sequence_complete = True
+    #         else:
+    #             self.last_event_type = 'Wrong' # New state for app.py alert
+    #             alert_message = f"Wrong order: expected {expected_name}, got {detected_name}"
+        
+    #     self.message = alert_message
+
     def check_detection(self, detected_name):
         """Checks the detected object against the next expected item in the list."""
         alert_message = ""
@@ -96,7 +118,8 @@ class Sequencer:
                     alert_message = "All items detected in order!"
                     self.is_sequence_complete = True
             else:
-                self.last_event_type = 'Wrong' # New state for app.py alert
+                self.last_event_type = 'Wrong' # Set event type to Wrong
+                self.wrong_event_time = time.time() # NEW: Record the time of the error
                 alert_message = f"Wrong order: expected {expected_name}, got {detected_name}"
         
         self.message = alert_message
