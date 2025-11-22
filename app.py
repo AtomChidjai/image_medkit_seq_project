@@ -4,9 +4,7 @@ import time
 from sequencer import Sequencer
 from streamlit_sortables import sort_items
 
-# Page Configuration
-st.set_page_config(page_title="YOLO Object Detection", layout="wide")
-
+st.set_page_config(page_title="MedOrder", layout="wide")
 st.title("🚑 MedOrder: Intelligent Object Sequencing for Medical Supplies")
 st.divider()
 
@@ -42,7 +40,7 @@ def handle_stop_and_log(manual_reset: bool = False):
     if 'sequencer' in st.session_state and st.session_state.running:
         # Log the stop event
         if manual_reset:
-            st.session_state.sequencer.logger.info("--- MANUAL RESET (X) PRESSED ---")
+            st.session_state.sequencer.logger.info("--- MANUAL RESET ---")
         else:
             st.session_state.sequencer.logger.info("--- RUN STOPPED BY USER ---")
         
@@ -103,7 +101,6 @@ def format_status_message(sequencer) -> str:
     ]
     
     return " | ".join(status_parts)
-
 
 # Layout
 col1, col2 = st.columns([1, 1])
@@ -224,20 +221,20 @@ if st.session_state.running:
             # Process frame through sequencer
             processed_frame, status_message = st.session_state.sequencer.process_frame(frame)
             
-            # Update alert display
+            # update alert display
             update_alert_display(alert_placeholder, st.session_state.sequencer)
             
-            # Convert to RGB for Streamlit display
+            # convert to RGB for Streamlit display
             processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
             
-            # Display frame
+            # display frame
             frame_window.image(processed_frame_rgb, channels="RGB")
             
-            # Update status with state information
+            # update status with state information
             formatted_status = format_status_message(st.session_state.sequencer)
             status_text.markdown(f"### {formatted_status}")
             
-            # Calculate and display FPS
+            # calculate and display FPS
             current_time = time.time()
             fps = 1.0 / (current_time - fps_time) if (current_time - fps_time) > 0 else 0
             st.session_state["fps"] = round(fps, 1)
