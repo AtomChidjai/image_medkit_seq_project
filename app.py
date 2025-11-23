@@ -53,14 +53,6 @@ def handle_stop_and_log(manual_reset: bool = False):
     elif st.session_state.running:
         st.session_state.running = False
 
-
-def handle_manual_reset():
-    if 'sequencer' in st.session_state and st.session_state.running:
-        handle_stop_and_log(manual_reset=True)
-        st.session_state.sequencer.reset_state()
-        st.warning("⚠️ Sequencer stopped and reset. Press Start to resume.")
-
-
 def update_alert_display(alert_placeholder, sequencer):
     state_info = sequencer.get_state_info()
     
@@ -167,7 +159,8 @@ with col1:
     st.subheader("📹 Real-Time Camera Feed")
     frame_window = st.empty()
     
-    start, stop, reset = st.columns(3)
+    # start, stop, reset = st.columns(3)
+    start, stop = st.columns(2)
     
     # Start Button
     with start:
@@ -191,17 +184,12 @@ with col1:
     with stop:
         if st.button("⏹️ Stop Sequencer", use_container_width=True, on_click=handle_stop_and_log):
             pass
-    
-    # Manual Reset Button
-    with reset:
-        if st.button("🔄 Manual Reset (X)", use_container_width=True, on_click=handle_manual_reset):
-            pass
 
 # main loop
 if st.session_state.running:
-    # init camera
+    # init camera    
     cap = cv2.VideoCapture(SOURCE_INPUT, cv2.CAP_DSHOW)
-    
+
     if not cap.isOpened():
         st.error("❌ Cannot access camera.")
         st.session_state.running = False
@@ -245,6 +233,7 @@ if st.session_state.running:
         
         # Cleanup after loop exits
         cap.release()
+
         if 'sequencer' in st.session_state:
             del st.session_state.sequencer
 else:

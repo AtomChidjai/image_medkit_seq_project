@@ -26,7 +26,6 @@ class Sequencer:
         imgsz: int = 256, 
         tolerance: int = 10
     ):
-        # Config
         self.model_path = model_path
         self.tracking_list = tracking_list
         self.conf = conf
@@ -35,24 +34,20 @@ class Sequencer:
         self.tolerance = tolerance
         self.session_id = time.strftime("%Y%m%d_%H%M%S")
         
-        # State machine
         self.current_state = SequenceState.PREPARING
         self.expected_index = 0
         
-        # Tracking state
         self.classes_on_border_prev: Set[str] = set()
         self.classes_in_frame: Set[str] = set()
         
-        # Validation & messaging
         self.message = "Initializing..."
         self.last_event_type: Optional[str] = None
         self.validation_start_time = 0.0
+        self.completion_start_time = 0.0
         
-        # Logging setup
         self.log_stream = StringIO()
         self.logger = self._setup_logger()
         
-        # Load model
         try:
             self.model = YOLO(self.model_path)
             self.logger.info(f"Model loaded: {self.model_path}")
@@ -90,17 +85,14 @@ class Sequencer:
             self.logger.info(log_msg)
     
     def _preprocess_frame(self, frame: np.ndarray) -> np.ndarray:
-        # l a b
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
         
-        # Apply CLAHE to l
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         l = clahe.apply(l)
         enhanced = cv2.merge([l, a, b])
         enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
         
-        # gaussian blur
         blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
         return blurred
     
@@ -109,7 +101,6 @@ class Sequencer:
         bx1, by1, bx2, by2 = border_box
         tol = self.tolerance
         
-        # 1. (x1,y1) top left (x2,y2) bottom right with tol
         completely_inside = (
             x1 > bx1 + tol and 
             x2 < bx2 - tol and 
@@ -119,29 +110,18 @@ class Sequencer:
         if completely_inside:
             return False
             
-        # 2. check overlap
         overlap_x = max(0, min(x2, bx2) - max(x1, bx1))
         overlap_y = max(0, min(y2, by2) - max(y1, by1))
         has_overlap = overlap_x > 0 and overlap_y > 0
         if not has_overlap:
             return False
             
-        # 3. check if touching any edge
         touch_left = abs(x1 - bx1) <= tol
         touch_right = abs(x2 - bx2) <= tol
         touch_top = abs(y1 - by1) <= tol
         touch_bottom = abs(y2 - by2) <= tol
         
         return touch_left or touch_right or touch_top or touch_bottom
-
-    def reset_state(self):
-        self.expected_index = 0
-        self.classes_on_border_prev.clear()
-        self.validation_start_time = 0.0
-        self.last_event_type = 'Reset'
-        
-        self._transition_to(SequenceState.PREPARING, "Manual reset")
-        self.logger.warning("Manual reset performed")
     
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, str]:
         self.last_event_type = None
@@ -149,7 +129,6 @@ class Sequencer:
         if self.model is None:
             return frame, "Error: Model not loaded"
         
-        ## preprocess l a b gaussian blur
         preprocessed = self._preprocess_frame(frame)
         results = self.model(
             source=preprocessed,
@@ -171,15 +150,12 @@ class Sequencer:
         margin = 20
         detect_box_xyxy = (margin, margin, width - margin, height - margin)
         
-        # detection box
         cv2.rectangle(annotated_frame, (margin, margin), (width - margin, height - margin), (0, 255, 0), 2)
         
-        # logic start here
         current_time = time.time()
         classes_on_border_curr = set()
         self.classes_in_frame = set()
         
-        # analyze detections
         if r.boxes is not None:
             for box, cls_id in zip(r.boxes.xyxy, r.boxes.cls):
                 box_xyxy = box.cpu().numpy().astype(int)
@@ -187,38 +163,47 @@ class Sequencer:
                 
                 self.classes_in_frame.add(class_name)
                 
-                # collide with detection box
                 if self._is_colliding_with_border(box_xyxy, detect_box_xyxy):
                     classes_on_border_curr.add(class_name)
         
-        # init state
         if self.current_state == SequenceState.PREPARING:
-            # check all item in tracking list
+            self.expected_index = 0
+            self.completion_start_time = 0.0
+            
             required_items = set(self.tracking_list)
             missing_items = required_items - self.classes_in_frame
             
-            # if all item -> idle
             if not missing_items:
                 self._transition_to(SequenceState.IDLE, "All items present")
                 self.message = f"Ready! Start with: {self.tracking_list[0]}"
             else:
                 self.message = f"Waiting for items: {', '.join(missing_items)}"
         
-        # state completed -> prepare
         elif self.current_state == SequenceState.COMPLETED:
-            self._transition_to(SequenceState.PREPARING, "Sequence finished, resetting")
+            if self.completion_start_time == 0.0:
+                self.completion_start_time = current_time
             
-        # active states (IDLE, TRACKING, VALIDATING)
+            if current_time - self.completion_start_time > self.VALIDATION_DISPLAY_DURATION:
+                self.expected_index = 0
+                self.classes_on_border_prev.clear()
+                self.completion_start_time = 0.0
+                self._transition_to(SequenceState.PREPARING, "Sequence finished, resetting")
+            else:
+                self.message = "✓ SEQUENCE COMPLETE!"
+            
         else:
+            if self.expected_index >= len(self.tracking_list):
+                self._transition_to(SequenceState.COMPLETED, "Sequence done")
+                self.logger.info("SEQUENCE COMPLETE!")
+                return annotated_frame, self.get_display_message()
+
             new_crossings = classes_on_border_curr - self.classes_on_border_prev
             
             for class_name in new_crossings:
-                # check sequence
                 if self.expected_index < len(self.tracking_list):
                     expected_class = self.tracking_list[self.expected_index]
                     
                     if class_name == expected_class:
-                        # correct
                         self.expected_index += 1
                         self.last_event_type = 'Correct'
                         self.logger.info(f"✓ CORRECT: {class_name} leaving")
@@ -226,7 +211,6 @@ class Sequencer:
                         if self.current_state == SequenceState.IDLE:
                             self._transition_to(SequenceState.TRACKING, "First item leaving")
                         
-                        # check completion
                         if self.expected_index >= len(self.tracking_list):
                             self._transition_to(SequenceState.COMPLETED, "Sequence done")
                             self.logger.info("SEQUENCE COMPLETE!")
@@ -235,23 +219,19 @@ class Sequencer:
                             self.message = f"✓ Correct: {class_name}. Next: {next_item}"
                             
                     else:
-                        # wrong
                         self.last_event_type = 'Wrong'
                         self.validation_start_time = current_time
                         self.message = f"⚠ Warning: expected {expected_class}, got {class_name}"
                         self._transition_to(SequenceState.VALIDATING, f"Wrong item: {class_name}")
                         self.logger.warning(f"✗ WRONG: Expected {expected_class}, got {class_name}")
 
-        # validation timeout
         if self.current_state == SequenceState.VALIDATING:
             if current_time - self.validation_start_time > self.VALIDATION_DISPLAY_DURATION:
                 prev_state = SequenceState.TRACKING if self.expected_index > 0 else SequenceState.IDLE
                 self._transition_to(prev_state, "Validation ended")
 
-        # update state for next frame
         self.classes_on_border_prev = classes_on_border_curr
         
-        # display message
         display_message = self.get_display_message()
         self._draw_status(annotated_frame, display_message, height)
         
@@ -274,7 +254,7 @@ class Sequencer:
         if self.current_state == SequenceState.PREPARING:
             return self.message
         elif self.current_state == SequenceState.COMPLETED:
-            return "✓ DONE! Put items back to reset."
+            return "✓ SEQUENCE COMPLETE!"
         elif self.current_state == SequenceState.VALIDATING:
             return self.message
         elif self.current_state == SequenceState.TRACKING:
