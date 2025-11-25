@@ -130,11 +130,22 @@ class Sequencer:
             return frame, "Error: Model not loaded"
         
         preprocessed = self._preprocess_frame(frame)
-        results = self.model(
+        # results = self.model(
+        #     source=preprocessed,
+        #     conf=self.conf,
+        #     iou=self.iou,
+        #     imgsz=self.imgsz,
+        #     verbose=False,
+        #     show=False,
+        #     save=False
+        # )
+
+        results = self.model.track(
             source=preprocessed,
             conf=self.conf,
             iou=self.iou,
             imgsz=self.imgsz,
+            persist=True,
             verbose=False,
             show=False,
             save=False

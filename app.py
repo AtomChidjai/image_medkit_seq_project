@@ -8,12 +8,13 @@ st.set_page_config(page_title="MedOrder", layout="wide")
 st.title("🚑 MedOrder: Intelligent Object Sequencing for Medical Supplies")
 st.divider()
 
-MODEL_PATH = 'model/medx_mini.pt'
+MODEL_PATH = 'model/medkit2.pt'
 SOURCE_INPUT = 0
+# SOURCE_INPUT = 1
 DEFAULT_CONF = 0.25
 DEFAULT_IOU = 0.7
 DEFAULT_IMGSZ = 256
-DEFAULT_TOLERANCE = 10
+DEFAULT_TOLERANCE = 20
 ALERT_DURATION_SECONDS = 3.0
 
 ## initialize session state
@@ -32,6 +33,7 @@ if "log_filename" not in st.session_state:
 PRESET_SEQUENCES = {
     "Pharmaceuticals": ['Eno', 'Mybacin', 'Paracetamol'],
     "Simple Meds": ['Eno', 'Mybacin'],
+    "Medical Supplies": ['Betadine', 'Cotton'],
     "Long Run": ['Mybacin', 'Paracetamol', 'Eno', 'Paracetamol'],
 }
 
@@ -216,7 +218,7 @@ if st.session_state.running:
             processed_frame_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
             
             # display frame
-            frame_window.image(processed_frame_rgb, channels="RGB")
+            frame_window.image(processed_frame_rgb, channels="RGB", width='stretch')
             
             # update status with state information
             formatted_status = format_status_message(st.session_state.sequencer)
